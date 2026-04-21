@@ -3,12 +3,16 @@ from textual.widgets import Input, Label, Button, Select
 from textual.containers import VerticalScroll, Container
 from groq import Groq
 import os
+from dotenv import load_dotenv
 
-class Message(Container):
+load_dotenv()
+
+class Message(Label):
     def __init__(self, text: str, is_user: bool):
-        self.is_user = is_user
-        super().__init__(Label(text), classes="message" if is_user else "bot-message")
-
+        # Use a Label as the message widget for compatibility across Textual versions
+        classes = "message" if is_user else "bot-message"
+        super().__init__(text, classes=classes)
+        
 class ChatApp(App):
     CSS = """
     Screen {
@@ -34,7 +38,12 @@ class ChatApp(App):
 
     def __init__(self):
         super().__init__()
-        self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            print("Warning: GROQ_API_KEY not set. Chat will not work until you set it.")
+            self.client = None
+        else:
+            self.client = Groq(api_key=api_key)
         self.models = ["llama-3.3-70b-versatile", "qwen/qwen3-32b"]
         self.model = self.models[0]
         self.messages = []
@@ -82,11 +91,43 @@ class ChatApp(App):
         self.messages.append({"role": "user", "content": msg})
 
         # Get response
-        resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=self.messages,
-        )
-        reply = resp.choices[0].message.content
+        try:
+            if self.client is None:
+                raise RuntimeError("GROQ_API_KEY not configured; cannot send request")
+
+            resp = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages,
+            )
+
+            # robust parse
+            reply = None
+            try:
+                choices = getattr(resp, "choices", None)
+                if choices and len(choices) > 0:
+                    choice = choices[0]
+                    msg_obj = getattr(choice, "message", None)
+                    if msg_obj is not None:
+                        reply = getattr(msg_obj, "content", None) or str(msg_obj)
+                    if reply is None:
+                        reply = getattr(choice, "text", None)
+            except Exception:
+                reply = None
+
+            if reply is None:
+                try:
+                    reply = resp["choices"][0]["message"]["content"]
+                except Exception:
+                    try:
+                        reply = resp["choices"][0].get("text")
+                    except Exception:
+                        reply = str(resp)
+
+            if isinstance(reply, (list, dict)):
+                reply = str(reply)
+
+        except Exception as e:
+            reply = f"Error: {e}"
         self.messages.append({"role": "assistant", "content": reply})
 
         # Add bot message

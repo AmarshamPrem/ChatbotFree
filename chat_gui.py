@@ -3,12 +3,19 @@ from tkinter import scrolledtext, ttk
 from groq import Groq
 import os
 import sys
+from dotenv import load_dotenv
 
+load_dotenv()
 
 class ChatGUI:
     def __init__(self):
         # Create client and basic state regardless of UI availability
-        self.client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            print("Warning: GROQ_API_KEY not set. Chat will not work until you set it.", file=sys.stderr)
+            self.client = None
+        else:
+            self.client = Groq(api_key=api_key)
         self.models = ["llama-3.3-70b-versatile", "qwen/qwen3-32b"]
         self.model = self.models[0]
         self.messages = []
@@ -83,6 +90,9 @@ class ChatGUI:
             self.messages.append({"role": "user", "content": msg})
 
             try:
+                if self.client is None:
+                    raise RuntimeError("GROQ_API_KEY not configured; cannot send request")
+
                 resp = self.client.chat.completions.create(
                     model=self.model,
                     messages=self.messages,
@@ -153,6 +163,9 @@ class ChatGUI:
 
                 self.messages.append({"role": "user", "content": msg})
                 try:
+                    if self.client is None:
+                        raise RuntimeError("GROQ_API_KEY not configured; cannot send request")
+
                     resp = self.client.chat.completions.create(
                         model=self.model,
                         messages=self.messages,
